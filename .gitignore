@@ -1,0 +1,31 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Environment variables (contains API keys!)
+.env
+.env.local
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+
+# Documents uploaded during testing
+documents/
+vector_store/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
