@@ -196,14 +196,16 @@ class DocumentAgent:
         else:
             docs_info = "No documents loaded yet."
 
-        # Retrieve relevant chunks from vector store if query provided
+        # Retrieve relevant chunks from vector store — restricted to
+        # documents currently loaded in THIS session only
         relevant_context = ""
-        if query and not self.vector_store.is_empty():
+        loaded_doc_ids = list(self.memory.document_context.keys())
+        if query and loaded_doc_ids and not self.vector_store.is_empty():
             relevant_context = (
                 "\n\nRelevant content retrieved from documents:\n"
                 + "=" * 50
                 + "\n"
-                + self.vector_store.search_and_format(query, k=5)
+                + self.vector_store.search_and_format(query, k=5, doc_ids=loaded_doc_ids)
                 + "\n"
                 + "=" * 50
             )

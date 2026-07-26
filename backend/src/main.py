@@ -255,6 +255,7 @@ async def reset():
 @app.post("/clear-all")
 async def clear_all():
     agent.memory.clear_all()
+    agent.vector_store.clear_all()
     return {"message": "All data cleared"}
 
 # ============================================================================

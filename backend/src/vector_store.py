@@ -130,6 +130,18 @@ class VectorStore:
             "documents": len(set(m["doc_id"] for m in self.chunk_metadata)),
         }
 
+    def clear_all(self):
+        """Wipe the entire index and remove persisted files from disk."""
+        self.index = faiss.IndexFlatL2(self.embedding_dim)
+        self.chunk_metadata = []
+
+        index_path = self.storage_path / "index.faiss"
+        meta_path = self.storage_path / "metadata.pkl"
+        if index_path.exists():
+            index_path.unlink()
+        if meta_path.exists():
+            meta_path.unlink()
+
     # ------------------------------------------------------------------
     # Convenience methods (used by agent.py)
     # ------------------------------------------------------------------
