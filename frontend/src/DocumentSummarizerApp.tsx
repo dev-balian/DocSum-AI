@@ -23,10 +23,22 @@ interface Message {
   isStreaming?: boolean;
 }
 
-interface SessionStats {
-  docsLoaded: number;
-  memoryUsed: string;
-  messagesCount: number;
+interface SessionStatus {
+  documents_loaded: number;
+  messages: number;
+  provider: string;
+  model: string;
+  vector_store: {
+    total_chunks_indexed: number;
+    documents_indexed: number;
+  };
+  documents: Array<{
+    id: string;
+    filename: string;
+    chunks: number;
+    images: number;
+    char_count: number;
+  }>;
 }
 
 interface ApiResponse {
@@ -213,19 +225,27 @@ const useStreamingMessage = (onMessageUpdate: (content: string) => void) => {
 
 interface DocumentPanelProps {
   documents: Document[];
-  stats: SessionStats;
   onUpload: (files: File[]) => Promise<void>;
   isUploading: boolean;
+  onDelete: (docId: string) => Promise<void>;
+  onRename: (docId: string, newName: string) => Promise<void>;
+  onPreview: (docId: string) => void;
 }
 
 const DocumentPanel: React.FC<DocumentPanelProps> = ({
   documents,
-  stats,
   onUpload,
   isUploading,
+  onDelete,
+  onRename,
+  onPreview,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -252,6 +272,30 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
       await onUpload(Array.from(e.target.files));
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const startEdit = (doc: Document) => {
+    setEditingId(doc.id);
+    setEditValue(doc.filename);
+  };
+
+  const commitEdit = async (docId: string) => {
+    const trimmed = editValue.trim();
+    setEditingId(null);
+    if (trimmed) {
+      await onRename(docId, trimmed);
+    }
+  };
+
+  const handleDeleteClick = async (docId: string) => {
+    if (confirmDeleteId !== docId) {
+      setConfirmDeleteId(docId);
+      return;
+    }
+    setDeletingId(docId);
+    setConfirmDeleteId(null);
+    await onDelete(docId);
+    setDeletingId(null);
   };
 
   return (
@@ -298,8 +342,49 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
           <p className="empty-state">No documents loaded</p>
         ) : (
           documents.map((doc) => (
-            <div key={doc.id} className="document-card">
-              <div className="document-name">{doc.filename}</div>
+            <div key={doc.id} className={`document-card ${deletingId === doc.id ? 'deleting' : ''}`}>
+              <div className="document-card-header">
+                {editingId === doc.id ? (
+                  <input
+                    className="document-name-input"
+                    value={editValue}
+                    autoFocus
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={() => commitEdit(doc.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitEdit(doc.id);
+                      if (e.key === 'Escape') setEditingId(null);
+                    }}
+                  />
+                ) : (
+                  <div
+                    className="document-name"
+                    onClick={() => startEdit(doc)}
+                    title="Click to rename"
+                  >
+                    {doc.filename}
+                  </div>
+                )}
+
+                <div className="document-card-actions">
+                  <button
+                    className="doc-action-btn"
+                    onClick={() => onPreview(doc.id)}
+                    title="Preview content"
+                  >
+                    👁️
+                  </button>
+                  <button
+                    className={`doc-action-btn ${confirmDeleteId === doc.id ? 'confirm-delete' : ''}`}
+                    onClick={() => handleDeleteClick(doc.id)}
+                    onBlur={() => setConfirmDeleteId(null)}
+                    title={confirmDeleteId === doc.id ? 'Click again to confirm' : 'Delete document'}
+                  >
+                    {confirmDeleteId === doc.id ? '✓ Confirm' : '🗑️'}
+                  </button>
+                </div>
+              </div>
+
               <div className="document-meta">
                 {doc.size} • {doc.chunks} chunks
               </div>
@@ -320,24 +405,88 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
         )}
       </div>
 
+      <SessionInfoPanel />
+    </aside>
+  );
+};
+
+// ============================================================================
+// Session Info Panel (dynamic, self-polling)
+// ============================================================================
+
+const SessionInfoPanel: React.FC = () => {
+  const [status, setStatus] = useState<SessionStatus | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch('/status');
+        if (!response.ok) return;
+        const data: SessionStatus = await response.json();
+        setStatus(data);
+      } catch {
+        // silent — session info is non-critical
+      }
+    };
+
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!status) {
+    return (
       <div className="session-info">
         <h3 className="session-title">Session info</h3>
-        <div className="session-stats">
-          <div className="stat">
-            <span className="stat-label">Docs loaded:</span>
-            <span className="stat-value">{stats.docsLoaded}</span>
-          </div>
-          <div className="stat">
-            <span className="stat-label">Memory used:</span>
-            <span className="stat-value">{stats.memoryUsed}</span>
-          </div>
-          <div className="stat">
-            <span className="stat-label">Messages:</span>
-            <span className="stat-value">{stats.messagesCount}</span>
-          </div>
+        <p className="empty-state">Loading…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="session-info">
+      <div className="session-header" onClick={() => setExpanded((v) => !v)}>
+        <h3 className="session-title">Session info</h3>
+        <span className={`session-provider-badge ${status.provider}`}>
+          {status.provider === 'claude' ? '☁️' : '💻'} {status.model}
+        </span>
+      </div>
+
+      <div className="session-stats">
+        <div className="stat">
+          <span className="stat-label">Docs loaded:</span>
+          <span className="stat-value">{status.documents_loaded}</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Chunks indexed:</span>
+          <span className="stat-value">{status.vector_store.total_chunks_indexed}</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Messages:</span>
+          <span className="stat-value">{status.messages}</span>
         </div>
       </div>
-    </aside>
+
+      {status.documents.length > 0 && (
+        <button className="session-expand-btn" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? '▲ Hide breakdown' : '▼ Per-document breakdown'}
+        </button>
+      )}
+
+      {expanded && (
+        <div className="session-breakdown">
+          {status.documents.map((doc) => (
+            <div key={doc.id} className="session-breakdown-item">
+              <span className="breakdown-filename">{doc.filename}</span>
+              <span className="breakdown-detail">
+                {doc.chunks} chunks{doc.images > 0 ? ` • ${doc.images} images` : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -639,15 +788,114 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ modelsInfo, onSwitch, isS
 // Main App Component
 // ============================================================================
 
+// ============================================================================
+// Document Preview Modal
+// ============================================================================
+
+interface DocumentPreview {
+  doc_id: string;
+  filename: string;
+  metadata: Record<string, any>;
+  chunk_count: number;
+  chunks: string[];
+}
+
+interface DocumentPreviewModalProps {
+  docId: string;
+  onClose: () => void;
+}
+
+const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ docId, onClose }) => {
+  const [preview, setPreview] = useState<DocumentPreview | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeChunk, setActiveChunk] = useState(0);
+
+  useEffect(() => {
+    const fetchPreview = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`/documents/${docId}/preview`);
+        if (!response.ok) throw new Error('Failed to load document preview');
+        const data: DocumentPreview = await response.json();
+        setPreview(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load preview');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchPreview();
+  }, [docId]);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content preview-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 className="modal-title">{preview?.filename || 'Document Preview'}</h3>
+          <button className="modal-close-btn" onClick={onClose}>✕</button>
+        </div>
+
+        {isLoading && (
+          <div className="modal-loading">
+            <div className="spinner"></div>
+            <p>Loading document…</p>
+          </div>
+        )}
+
+        {error && <div className="modal-error">⚠️ {error}</div>}
+
+        {preview && !isLoading && (
+          <>
+            <div className="preview-meta-bar">
+              <span>{preview.chunk_count} chunks</span>
+              {preview.metadata?.page_count && <span>{preview.metadata.page_count} pages</span>}
+              {preview.metadata?.char_count && (
+                <span>{preview.metadata.char_count.toLocaleString()} characters</span>
+              )}
+            </div>
+
+            <div className="preview-body">
+              <div className="preview-chunk-nav">
+                {preview.chunks.map((_, i) => (
+                  <button
+                    key={i}
+                    className={`preview-chunk-tab ${activeChunk === i ? 'active' : ''}`}
+                    onClick={() => setActiveChunk(i)}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+
+              <div className="preview-chunk-content">
+                {preview.chunks[activeChunk] || 'No content available.'}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// Main App Component
+// ============================================================================
+
 const DocumentSummarizerApp: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [stats, setStats] = useState<SessionStats>({
-    docsLoaded: 0,
-    memoryUsed: '0 MB',
-    messagesCount: 0,
-  });
   const [modelsInfo, setModelsInfo] = useState<ModelsInfo | null>(null);
   const [isSwitchingModel, setIsSwitchingModel] = useState(false);
   const { toasts, showToast, dismissToast } = useToasts();
@@ -707,24 +955,8 @@ const DocumentSummarizerApp: React.FC = () => {
     });
   });
 
-  // Fetch session stats
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const response = await fetch('/health');
-        const data = await response.json();
-        setStats((prev) => ({
-          ...prev,
-          messagesCount: messages.length,
-        }));
-      } catch (error) {
-        console.error('Failed to fetch stats:', error);
-      }
-    };
-
-    const interval = setInterval(fetchStats, 5000);
-    return () => clearInterval(interval);
-  }, [messages.length]);
+  // Session info (docs loaded, chunks, provider/model, messages) is now
+  // handled by the self-polling SessionInfoPanel component.
 
   const handleUpload = useCallback(
     async (files: File[]) => {
@@ -755,12 +987,6 @@ const DocumentSummarizerApp: React.FC = () => {
               images: data.images || [],
             },
           ]);
-
-          setStats((prev) => ({
-            ...prev,
-            docsLoaded: prev.docsLoaded + 1,
-            memoryUsed: `${Math.round((prev.docsLoaded + 1) * 75)} MB`,
-          }));
 
           showToast(`${file.name} uploaded successfully`, 'success');
         }
@@ -810,11 +1036,6 @@ const DocumentSummarizerApp: React.FC = () => {
             { ...lastMsg, content: fullResponse, isStreaming: false },
           ];
         });
-
-        setStats((prev) => ({
-          ...prev,
-          messagesCount: prev.messagesCount + 1,
-        }));
       } catch (error) {
         setMessages((prev) => {
           const lastMsg = prev[prev.length - 1];
@@ -856,12 +1077,46 @@ const DocumentSummarizerApp: React.FC = () => {
       if (!response.ok) throw new Error('Failed to clear all data');
       setMessages([]);
       setDocuments([]);
-      setStats({ docsLoaded: 0, memoryUsed: '0 MB', messagesCount: 0 });
       showToast('All data cleared', 'success');
     } catch (error) {
       showToast('Failed to clear all data', 'error');
     }
   }, [showToast]);
+
+  const handleDeleteDocument = useCallback(async (docId: string) => {
+    try {
+      const response = await fetch(`/documents/${docId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to delete document');
+      const deleted = documents.find((d) => d.id === docId);
+      setDocuments((prev) => prev.filter((d) => d.id !== docId));
+      showToast(`${deleted?.filename || 'Document'} deleted`, 'success');
+    } catch (error) {
+      showToast('Failed to delete document', 'error');
+    }
+  }, [documents, showToast]);
+
+  const handleRenameDocument = useCallback(async (docId: string, newName: string) => {
+    try {
+      const response = await fetch(`/documents/${docId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: newName }),
+      });
+      if (!response.ok) throw new Error('Failed to rename document');
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === docId ? { ...d, filename: newName } : d))
+      );
+      showToast('Document renamed', 'success');
+    } catch (error) {
+      showToast('Failed to rename document', 'error');
+    }
+  }, [showToast]);
+
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+
+  const handlePreviewDocument = useCallback((docId: string) => {
+    setPreviewDocId(docId);
+  }, []);
 
   return (
     <div className="app-container">
@@ -885,9 +1140,11 @@ const DocumentSummarizerApp: React.FC = () => {
       <main className="app-main">
         <DocumentPanel
           documents={documents}
-          stats={stats}
           onUpload={handleUpload}
           isUploading={isUploading}
+          onDelete={handleDeleteDocument}
+          onRename={handleRenameDocument}
+          onPreview={handlePreviewDocument}
         />
         <ChatPanel
           messages={messages}
@@ -900,6 +1157,10 @@ const DocumentSummarizerApp: React.FC = () => {
           }}
         />
       </main>
+
+      {previewDocId && (
+        <DocumentPreviewModal docId={previewDocId} onClose={() => setPreviewDocId(null)} />
+      )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
