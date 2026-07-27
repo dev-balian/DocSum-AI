@@ -67,12 +67,18 @@ class DocumentAgent:
     # ------------------------------------------------------------------
 
     def stream_query(self, query: str):
-        """Claude streaming context manager."""
+        """Claude streaming context manager.
+
+        No tools are passed here on purpose — relevant document content is
+        already retrieved and injected directly into the system prompt via
+        _build_system_prompt(). Passing tools to a streaming call risks the
+        model silently issuing a tool_use turn with no text and no follow-up
+        execution, which produces an empty/truncated stream.
+        """
         return self.client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
             system=self._build_system_prompt(query),
-            tools=TOOLS,
             messages=self._format_messages(),
         )
 
@@ -197,15 +203,26 @@ class DocumentAgent:
             docs_info = "No documents loaded yet."
 
         # Retrieve relevant chunks from vector store — restricted to
-        # documents currently loaded in THIS session only
+        # documents currently loaded in THIS session only.
+        # When multiple documents are loaded, retrieve per-document so no
+        # single document dominates/starves the others in a shared top-k search.
         relevant_context = ""
         loaded_doc_ids = list(self.memory.document_context.keys())
         if query and loaded_doc_ids and not self.vector_store.is_empty():
+            if len(loaded_doc_ids) > 1:
+                retrieved = self.vector_store.search_per_document(
+                    query, doc_ids=loaded_doc_ids, k_per_doc=4
+                )
+            else:
+                retrieved = self.vector_store.search_and_format(
+                    query, k=5, doc_ids=loaded_doc_ids
+                )
+
             relevant_context = (
                 "\n\nRelevant content retrieved from documents:\n"
                 + "=" * 50
                 + "\n"
-                + self.vector_store.search_and_format(query, k=5, doc_ids=loaded_doc_ids)
+                + retrieved
                 + "\n"
                 + "=" * 50
             )
@@ -230,7 +247,8 @@ FORMATTING RULES — always follow these for every response:
 - Use a Markdown table whenever comparing two or more documents or presenting structured data (dates, figures, categories).
 - Use light, purposeful symbols to aid scanning — ✅ for confirmed/positive points, ⚠️ for risks or caveats, 📌 for key takeaways — but do not overuse them; a few per response is enough.
 - Keep paragraphs short (2-4 sentences). Prefer lists over long prose when listing multiple items.
-- Do not pad the response with filler — every section should carry real information."""
+- Do not pad the response with filler — every section should carry real information.
+- MULTI-DOCUMENT RULE: If more than one document is loaded and the request is to summarize, extract, or generate insights, ALWAYS give each document its own clearly labeled section using the exact format "## 📄 <filename>" as the header — never merge multiple documents into one blended answer unless the user explicitly asks for a comparison. Only add a final combined section (headed "## 🔗 Combined View") if it adds genuine value beyond the individual breakdowns."""
 
     def _format_messages(self) -> List[Dict[str, Any]]:
         return [
@@ -253,14 +271,26 @@ FORMATTING RULES — always follow these for every response:
         doc_ids = tool_input.get("doc_ids") or list(self.memory.document_context.keys())
         question = tool_input.get("question") or tool_input.get("focus") or tool_name
 
-        # Use vector search to get relevant chunks for this tool call
-        context = self.vector_store.search_and_format(question, k=6, doc_ids=doc_ids)
+        # For per-document tools with multiple docs loaded, retrieve chunks
+        # separately per document so no single document dominates/starves others.
+        per_doc_tools = {"summarize", "extract_data", "generate_insights"}
+
+        if tool_name in per_doc_tools and len(doc_ids) > 1:
+            context = self.vector_store.search_per_document(question, doc_ids=doc_ids, k_per_doc=4)
+            instruction = (
+                "\nIMPORTANT: Multiple documents are loaded. Provide a separate, clearly "
+                "labeled section for EACH document below (use '## <filename>' as the section "
+                "header), before any combined summary or comparison."
+            )
+        else:
+            context = self.vector_store.search_and_format(question, k=6, doc_ids=doc_ids)
+            instruction = ""
 
         tool_map = {
-            "summarize": f"[summarize | style={tool_input.get('style', 'detailed')}]\n{context}",
+            "summarize": f"[summarize | style={tool_input.get('style', 'detailed')}]{instruction}\n{context}",
             "compare_documents": f"[compare | focus={tool_input.get('focus', 'general')}]\n{context}",
-            "extract_data": f"[extract | type={tool_input.get('data_type', 'key info')}]\n{context}",
-            "generate_insights": f"[insights | focus={tool_input.get('focus_area', 'general')}]\n{context}",
+            "extract_data": f"[extract | type={tool_input.get('data_type', 'key info')}]{instruction}\n{context}",
+            "generate_insights": f"[insights | focus={tool_input.get('focus_area', 'general')}]{instruction}\n{context}",
             "query_document": f"[query | question={tool_input.get('question', '')}]\n{context}",
         }
         return tool_map.get(tool_name, f"Unknown tool: {tool_name}")

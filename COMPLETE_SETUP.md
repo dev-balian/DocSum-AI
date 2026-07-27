@@ -1,646 +1,176 @@
-# Complete Setup & Deployment Guide
+# DocSum AI — Agentic Document Summarizer
 
-## Quick Start (5 minutes)
+An AI-powered document analysis agent that summarizes, compares, extracts data from, and generates insights across PDF and TXT documents — with real-time streaming responses, semantic search over actual document content, and the ability to switch between cloud (Claude) and local (Ollama) LLMs on the fly.
 
-### Backend Setup
+> See [CHANGELOG.md](./CHANGELOG.md) for a full history of changes and fixes.
 
-```bash
-# 1. Install backend dependencies
-pip install -r requirements.txt
+---
 
-# 2. Copy .env.example to .env and configure
-cp .env.example .env
-# Edit .env with your ANTHROPIC_API_KEY
+## Features
 
-# 3. Start backend server
-python -m uvicorn src.main:app --reload --port 8000
+- Upload PDF/TXT documents — drag-and-drop or click to upload
+- Real-time streaming chat — responses stream in live via Server-Sent Events
+- Semantic search (RAG) — FAISS vector store retrieves the most relevant document chunks for every query, so answers are grounded in actual content
+- Per-document breakdown — when multiple documents are loaded, summaries/insights are broken into clearly labeled sections per file, not blended together
+- Switch LLMs on the fly — toggle between Claude (cloud) and Ollama (local, free, private) without restarting the app
+- Quick actions — one-click Summarize, Compare, Extract, and Insights
+- Rich Markdown output — headers, bold terms, tables, and visually distinct section cards
+- PDF image extraction — embedded images shown as thumbnails per document
+- Copy-to-clipboard on responses, toast notifications, one-click Clear Chat / Clear All
+- Runs fully offline — with Ollama, no data ever leaves your machine
+- Session stats — track loaded documents, memory usage, and message count
 
-# Backend running at http://localhost:8000
-```
+---
 
-### Frontend Setup
+## Tech Stack
 
-```bash
-# 1. Navigate to frontend directory
-cd frontend
-
-# 2. Install dependencies
-npm install
-
-# 3. Start development server
-npm run dev
-
-# Frontend running at http://localhost:3000
-```
-
-That's it! Open http://localhost:3000 in your browser.
+| Layer | Technology |
+|---|---|
+| Frontend | React 18 + TypeScript + Vite |
+| Markdown rendering | react-markdown + remark-gfm |
+| Backend | Python + FastAPI |
+| LLM (cloud) | Anthropic Claude API |
+| LLM (local) | Ollama (Mistral, Llama 3.1, etc.) |
+| Vector search | FAISS + sentence-transformers |
+| Document parsing | pypdf |
 
 ---
 
 ## Project Structure
 
 ```
-agentic-doc-summarizer/
+DocSum-AI/
 ├── backend/
 │   ├── src/
-│   │   ├── config.py                 # Settings
-│   │   ├── models.py                 # API schemas
-│   │   ├── document_processor.py      # PDF/TXT handling
-│   │   ├── memory.py                 # Conversation state
-│   │   ├── tools.py                  # Tool definitions
-│   │   ├── agent.py                  # Agentic loop
-│   │   └── main_backend_streaming.py # Updated FastAPI (USE THIS)
-│   ├── requirements.txt               # Python dependencies
-│   ├── .env.example                  # Config template
-│   └── cli.py                         # Command-line interface
+│   │   ├── config.py              # Settings (env vars)
+│   │   ├── models.py              # Pydantic request/response schemas
+│   │   ├── document_processor.py  # PDF/TXT extraction, chunking, image extraction
+│   │   ├── memory.py              # Conversation history
+│   │   ├── tools.py               # Agent tool definitions
+│   │   ├── vector_store.py        # FAISS semantic search (global + per-document)
+│   │   ├── agent.py               # Core agentic loop (Claude + Ollama, model switching)
+│   │   └── main.py                # FastAPI app & endpoints
+│   └── requirements.txt
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── DocumentSummarizerApp.tsx # Main component
-│   │   ├── styles.css                # Styling
-│   │   └── main.tsx                  # Entry point
-│   ├── index.html                     # HTML template
-│   ├── package.json                  # Dependencies
-│   ├── tsconfig.json                 # TypeScript config
-│   ├── vite.config.ts                # Build config
-│   └── FRONTEND_SETUP.md             # Frontend docs
+│   │   ├── DocumentSummarizerApp.tsx  # Main React app
+│   │   ├── styles.css
+│   │   └── main.tsx
+│   ├── package.json
+│   └── vite.config.ts
 │
-└── COMPLETE_SETUP.md (this file)
+├── README.md
+└── CHANGELOG.md
 ```
 
 ---
 
-## Backend Setup Details
+## Setup
 
-### Requirements
+### Prerequisites
 
-- Python 3.10+
-- pip or poetry
-- Anthropic API key
+- Python 3.12 (Python 3.14 is not yet supported — no precompiled `pydantic-core` wheels)
+- Node.js 18+
+- [Ollama](https://ollama.com/download) (for local/private mode) and/or an [Anthropic API key](https://console.anthropic.com/) (for Claude)
 
-### Installation
+### 1. Backend
 
-```bash
-# Create virtual environment
-python3.11 -m venv venv
-
-# Activate it
-# On macOS/Linux:
-source venv/bin/activate
-# On Windows:
+```powershell
+cd backend
+python -m venv venv
 venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Configuration
+Create a `.env` file in `backend/`:
 
-Create `.env` file:
-
-```bash
-# API Configuration
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-
-# Deployment mode
-MODE=private  # or "public"
-
-# LLM Configuration
-LLM_PROVIDER=claude  # or "ollama"
-OLLAMA_MODEL=mistral
+```env
+MODE=private
+LLM_PROVIDER=ollama          # or "claude"
+ANTHROPIC_API_KEY=           # required only if using Claude
 OLLAMA_BASE_URL=http://localhost:11434
-
-# Storage
-STORAGE_TYPE=local  # or "cloud"
+OLLAMA_MODEL=mistral
 LOCAL_STORAGE_PATH=./documents
-
-# Server
-HOST=0.0.0.0
-PORT=8000
-DEBUG=True
 ```
 
-### Running the Backend
+Run the server:
 
-#### Development Mode (with auto-reload)
-
-```bash
+```powershell
 python -m uvicorn src.main:app --reload --port 8000
 ```
 
-#### With Updated Streaming Backend
+### 2. Frontend
 
-```bash
-# Copy the streaming-enabled backend
-cp main_backend_streaming.py src/main.py
-
-# Run it
-python -m uvicorn src.main:app --reload --port 8000
-```
-
-#### Production Mode
-
-```bash
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
-### Testing Backend
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Upload document
-curl -F "file=@document.pdf" http://localhost:8000/upload
-
-# Test streaming
-curl -N http://localhost:8000/test-stream
-
-# Interactive docs
-# Open http://localhost:8000/docs in browser
-```
-
----
-
-## Frontend Setup Details
-
-### Requirements
-
-- Node.js 18+
-- npm or yarn
-
-### Installation
-
-```bash
+```powershell
 cd frontend
-
-# Install dependencies
 npm install
-
-# Verify installation
-npm run type-check
-```
-
-### Development
-
-```bash
-# Start dev server with hot reload
-npm run dev
-
-# Open http://localhost:3000
-```
-
-### Production Build
-
-```bash
-# Build optimized version
-npm run build
-
-# Output in dist/ directory
-# Test locally:
-npm run preview
-```
-
-### Environment Variables
-
-Create `frontend/.env.local`:
-
-```
-VITE_API_URL=http://localhost:8000
-```
-
-For production:
-
-```
-VITE_API_URL=https://api.example.com
-```
-
----
-
-## Full Workflow
-
-### 1. Upload Documents
-
-**Frontend:**
-- Click upload zone or drag files
-- Shows progress during processing
-- Displays document metadata
-
-**Backend:**
-- Receives PDF/TXT files
-- Extracts text using PyPDF
-- Chunks text intelligently
-- Stores in memory
-
-### 2. Ask Questions
-
-**Frontend:**
-- Type query or click quick action
-- Real-time streaming response
-- Messages persist in history
-
-**Backend:**
-- Receives query via SSE endpoint
-- Builds system prompt with doc context
-- Calls Claude API with tools
-- Streams response back in real-time
-
-### 3. Agent Reasoning
-
-**Agent Flow:**
-```
-User Query
-    ↓
-System Prompt (docs + tools)
-    ↓
-Claude Reasoning (Think)
-    ↓
-Tool Selection (Plan)
-    ↓
-Tool Execution (Act)
-    ↓
-Response Synthesis (Reflect)
-    ↓
-Stream to Frontend
-```
-
----
-
-## Deployment
-
-### Local Network
-
-Allow other machines to access your local setup:
-
-```bash
-# Backend (accessible from network)
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
-
-# Frontend (update vite.config.ts)
-# Change proxy target to your machine's IP:
-# 'http://192.168.x.x:8000'
-
 npm run dev
 ```
 
-### Docker Deployment
+Open **http://localhost:5173**
 
-#### Docker Compose (easiest)
-
-Create `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-services:
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      MODE: private
-    volumes:
-      - ./documents:/app/documents
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    environment:
-      VITE_API_URL: http://localhost:8000
+If you hit a peer-dependency error on `npm install` (unrelated ESLint version conflict), use:
+```powershell
+npm install --legacy-peer-deps
 ```
 
-Create `backend/Dockerfile`:
+### 3. (Optional) Local LLM via Ollama
 
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```powershell
+ollama pull mistral
+ollama pull llama3.1
 ```
 
-Create `frontend/Dockerfile`:
-
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-EXPOSE 3000
-CMD ["npm", "run", "preview"]
-```
-
-Run:
-
-```bash
-export ANTHROPIC_API_KEY=your-key-here
-docker-compose up
-```
-
-Access:
-- Frontend: http://localhost:3000
-- Backend: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-
-#### Heroku Deployment
-
-```bash
-# Login to Heroku
-heroku login
-
-# Create app
-heroku create your-app-name
-
-# Set environment variables
-heroku config:set ANTHROPIC_API_KEY=your-key
-
-# Deploy backend
-git push heroku main
-
-# Frontend to Vercel (see below)
-```
-
-#### Vercel Deployment (Frontend Only)
-
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy
-cd frontend
-vercel
-
-# Configure environment:
-# VITE_API_URL = https://your-api.com
-```
-
-### AWS Deployment
-
-#### EC2 + ALB Setup
-
-1. **Launch EC2 instance**
-   ```bash
-   # Ubuntu 22.04 LTS
-   # Instance type: t3.medium minimum
-   # Security group: Allow 22, 80, 443
-   ```
-
-2. **Install software**
-   ```bash
-   sudo apt update
-   sudo apt install -y python3.11 python3-pip nodejs npm docker.io docker-compose
-
-   # Add your user to docker group
-   sudo usermod -aG docker $USER
-   ```
-
-3. **Deploy with Docker Compose**
-   ```bash
-   git clone your-repo
-   cd your-repo
-   export ANTHROPIC_API_KEY=your-key
-   docker-compose up -d
-   ```
-
-4. **Set up Nginx reverse proxy**
-   ```nginx
-   upstream backend {
-       server localhost:8000;
-   }
-
-   upstream frontend {
-       server localhost:3000;
-   }
-
-   server {
-       listen 80;
-       server_name yourdomain.com;
-
-       location /api {
-           proxy_pass http://backend;
-       }
-
-       location / {
-           proxy_pass http://frontend;
-       }
-   }
-   ```
-
-5. **SSL with Let's Encrypt**
-   ```bash
-   sudo apt install certbot python3-certbot-nginx
-   sudo certbot --nginx -d yourdomain.com
-   ```
+Any pulled model automatically appears in the app's model switcher — no restart needed.
 
 ---
 
-## Monitoring & Debugging
+## Usage
 
-### View Logs
-
-**Backend:**
-```bash
-# Development
-python -m uvicorn src.main:app --log-level debug
-
-# Docker
-docker-compose logs -f backend
-```
-
-**Frontend:**
-- Browser DevTools (F12)
-- Network tab for API calls
-- Console for errors
-
-### Debug Streaming
-
-Test SSE streaming:
-
-```bash
-# Terminal 1: Start backend
-python -m uvicorn src.main:app --reload
-
-# Terminal 2: Test streaming
-curl -N http://localhost:8000/test-stream
-
-# Should see streaming response
-```
-
-### Performance Monitoring
-
-```bash
-# Backend performance
-python -m cProfile -s cumtime -m uvicorn src.main:app
-
-# Frontend
-# Chrome DevTools → Performance tab → Record → Interact → Stop
-```
-
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| CORS errors | Check backend CORS config in main.py |
-| API 404 | Check backend is running on 8000 |
-| Streaming not working | Verify browser supports EventSource, check SSE headers |
-| Memory errors | Reduce MAX_TOKENS in settings, implement vector DB |
-| File upload fails | Check LOCAL_STORAGE_PATH exists and is writable |
+1. Upload one or more PDF or TXT documents
+2. Ask a question, or use a quick action (Summarize / Compare / Extract / Insights)
+3. Watch the response stream in real time, formatted with headers, bold terms, and tables
+4. With multiple documents loaded, each gets its own clearly labeled section
+5. Switch models anytime using the selector in the top-right header
+6. Copy any response with one click; clear the chat or clear everything from the header buttons
 
 ---
 
-## Performance Optimization
+## API Endpoints
 
-### Quick Wins
+| Endpoint | Method | Description |
+|---|---|---|
+| `/upload` | POST | Upload and process a document (extracts text, chunks, images) |
+| `/documents` | GET | List loaded documents |
+| `/query` | POST | Ask a question (non-streaming) |
+| `/query-stream` | POST | Ask a question (SSE streaming) |
+| `/models` | GET | List available Claude/Ollama models |
+| `/models/switch` | POST | Switch active model at runtime |
+| `/reset` | POST | Clear conversation history (keeps documents) |
+| `/clear-all` | POST | Clear documents, conversation, and vector store |
+| `/health` | GET | Health check (current provider/model) |
+| `/document-images/{filename}` | GET | Serve extracted PDF images |
 
-1. **Enable response streaming** (already in place)
-2. **Parallel document processing** (implemented)
-3. **Cache system prompts** (use prompt caching)
-4. **Lazy load UI** (React optimization)
-
-### For Production
-
-1. **Add vector database**
-   ```bash
-   pip install pinecone-client sentence-transformers
-   ```
-
-2. **Enable Redis caching**
-   ```bash
-   pip install redis
-   docker run -d -p 6379:6379 redis:latest
-   ```
-
-3. **Use cheaper models for simple tasks**
-   - Haiku for basic queries
-   - Opus only for complex reasoning
-
-4. **Implement rate limiting**
-   ```python
-   from slowapi import Limiter
-   limiter = Limiter(key_func=get_remote_address)
-   app.state.limiter = limiter
-   ```
+Full interactive API docs available at `http://localhost:8000/docs` while the backend is running.
 
 ---
 
-## Cost Estimation
+## How It Works
 
-### API Costs (Monthly)
-
-| Usage Level | API Calls | Cost | Optimization |
-|------------|-----------|------|--------------|
-| Light | 100 | $0.50 | Prompt caching saves 90% |
-| Medium | 1,000 | $5.00 | Use Haiku for 70% queries |
-| Heavy | 10,000 | $50.00 | Vector DB reduces tokens 90% |
-
-### Hosting Costs
-
-| Platform | Tier | Cost | Notes |
-|----------|------|------|-------|
-| Vercel | Pro | $20/mo | Frontend only |
-| Heroku | Eco | $7/mo | Full stack |
-| AWS | t3.medium | $30/mo | Self-managed |
-| DigitalOcean | Basic | $24/mo | Good value |
-
-### Total Monthly (Medium Usage)
-
-- API: $5-10 (with optimizations)
-- Hosting: $25-50
-- **Total: $30-60/month**
+1. **Upload** — Document is parsed (pypdf for PDF), chunked, embedded via `sentence-transformers`, and indexed in a local FAISS store. Embedded images are extracted and saved.
+2. **Query** — On each question, the query is embedded. If multiple documents are loaded, each is searched independently (per-document retrieval) so no single document dominates the response.
+3. **Generate** — Retrieved chunks are injected directly into the system prompt, along with formatting rules (Markdown structure, per-document sections), then sent to the active LLM (Claude or Ollama).
+4. **Stream** — The response streams back via Server-Sent Events, JSON-encoded to safely preserve formatting, and renders live as Markdown in the chat.
 
 ---
 
-## Maintenance
+## Known Limitations / Roadmap
 
-### Regular Tasks
-
-- **Daily**: Monitor error logs
-- **Weekly**: Check API usage and costs
-- **Monthly**: Update dependencies
-- **Quarterly**: Performance audit
-
-### Update Dependencies
-
-```bash
-# Backend
-pip install --upgrade -r requirements.txt
-
-# Frontend
-npm update
-npm audit fix
-```
-
-### Backup Strategy
-
-```bash
-# Backup documents
-cp -r documents/ backup/documents_$(date +%Y%m%d)/
-
-# Backup database (if added)
-mysqldump -u user -p database > backup_$(date +%Y%m%d).sql
-```
+See the "Still Planned" section in [CHANGELOG.md](./CHANGELOG.md) for upcoming features (delete/rename documents, document preview, bulk actions, conversation export).
 
 ---
 
-## Security Checklist
+## License
 
-- [ ] API key stored in environment variables only
-- [ ] HTTPS enabled in production
-- [ ] CORS properly configured
-- [ ] Input validation on all endpoints
-- [ ] Rate limiting enabled
-- [ ] Secrets not committed to git
-- [ ] Regular dependency updates
-- [ ] Security headers configured
-- [ ] File upload validation
-
----
-
-## Support & Resources
-
-### Documentation
-- Frontend: See `frontend/FRONTEND_SETUP.md`
-- Backend: See `src/` docstrings
-- API: Interactive docs at `/docs` when backend running
-
-### Testing
-```bash
-# Backend tests
-pytest
-
-# Frontend tests
-npm test
-
-# Type checking
-npm run type-check
-
-# Linting
-npm run lint
-```
-
-### Getting Help
-
-1. Check the FAQ in documentation
-2. Review error messages in logs
-3. Test with `test-stream` endpoint
-4. Check browser DevTools console
-5. Read API documentation at `/docs`
-
----
-
-## Next Steps
-
-1. ✅ Start backend: `python -m uvicorn src.main:app --reload`
-2. ✅ Start frontend: `npm run dev`
-3. ✅ Open http://localhost:3000
-4. ✅ Upload a document
-5. ✅ Ask a question
-6. ✅ Watch streaming response
-
-Enjoy building! 🚀
+MIT

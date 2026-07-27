@@ -40,6 +40,12 @@ interface ModelsInfo {
   ollama: { available: boolean; models: string[] };
 }
 
+interface Toast {
+  id: string;
+  type: 'success' | 'error' | 'info';
+  message: string;
+}
+
 // ============================================================================
 // Utility Functions
 // ============================================================================
@@ -56,6 +62,55 @@ const formatFileSize = (bytes: number): string => {
 
 const formatTime = (date: Date): string => {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+// ============================================================================
+// Toast Notifications
+// ============================================================================
+
+const useToasts = () => {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = useCallback((message: string, type: Toast['type'] = 'info') => {
+    const id = generateId();
+    setToasts((prev) => [...prev, { id, type, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  return { toasts, showToast, dismissToast };
+};
+
+const ToastContainer: React.FC<{ toasts: Toast[]; onDismiss: (id: string) => void }> = ({
+  toasts,
+  onDismiss,
+}) => {
+  if (toasts.length === 0) return null;
+
+  const icons: Record<Toast['type'], string> = {
+    success: '✅',
+    error: '⚠️',
+    info: 'ℹ️',
+  };
+
+  return (
+    <div className="toast-container">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast-${toast.type}`}>
+          <span className="toast-icon">{icons[toast.type]}</span>
+          <span className="toast-message">{toast.message}</span>
+          <button className="toast-dismiss" onClick={() => onDismiss(toast.id)}>
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 // ============================================================================
@@ -99,20 +154,37 @@ const useStreamingMessage = (onMessageUpdate: (content: string) => void) => {
 
           for (let i = 0; i < lines.length - 1; i++) {
             const line = lines[i];
-            if (line.startsWith('data: ')) {
-              const chunk = line.slice(6);
-              fullMessage += chunk;
-              onMessageUpdate(fullMessage);
+            if (!line.startsWith('data: ')) continue;
+
+            const raw = line.slice(6);
+            let chunk: string;
+            try {
+              chunk = JSON.parse(raw);
+            } catch {
+              // Fallback for any legacy non-JSON payloads
+              chunk = raw;
             }
+
+            if (chunk === '[DONE]') continue;
+
+            fullMessage += chunk;
+            onMessageUpdate(fullMessage);
           }
 
           buffer = lines[lines.length - 1];
         }
 
         if (buffer.startsWith('data: ')) {
-          const chunk = buffer.slice(6);
-          fullMessage += chunk;
-          onMessageUpdate(fullMessage);
+          const raw = buffer.slice(6);
+          try {
+            const chunk = JSON.parse(raw);
+            if (chunk !== '[DONE]') {
+              fullMessage += chunk;
+              onMessageUpdate(fullMessage);
+            }
+          } catch {
+            // ignore trailing partial/invalid payload
+          }
         }
 
         return fullMessage;
@@ -186,22 +258,17 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
     <aside className="document-panel">
       <div className="panel-header">
         <h2 className="panel-title">Documents</h2>
-        <button
-          className="icon-button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          title="Add document"
-        >
-          +
-        </button>
       </div>
 
       <div
-        className={`upload-zone ${dragActive ? 'active' : ''}`}
+        className={`upload-zone upload-zone-large ${dragActive ? 'active' : ''}`}
+        onClick={() => !isUploading && fileInputRef.current?.click()}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
         onDrop={handleDrop}
+        role="button"
+        tabIndex={0}
       >
         <input
           ref={fileInputRef}
@@ -218,8 +285,10 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
           </div>
         ) : (
           <>
-            <p className="upload-icon">📁</p>
-            <p className="upload-text">Drop or click to upload</p>
+            <p className="upload-icon-large">📤</p>
+            <p className="upload-text-primary">Upload a document</p>
+            <p className="upload-text-secondary">Drag & drop, or click to browse</p>
+            <p className="upload-text-hint">PDF or TXT</p>
           </>
         )}
       </div>
@@ -278,10 +347,19 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
 
 interface MessageItemProps {
   message: Message;
+  onCopy?: (text: string) => void;
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
+const MessageItem: React.FC<MessageItemProps> = ({ message, onCopy }) => {
   const isUser = message.role === 'user';
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyClick = () => {
+    if (!onCopy) return;
+    onCopy(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   return (
     <div className={`message ${isUser ? 'user-message' : 'assistant-message'}`}>
@@ -298,7 +376,22 @@ const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
             </ReactMarkdown>
           )}
         </div>
-        <div className="message-time">{formatTime(message.timestamp)}</div>
+        <div className="message-footer">
+          <div className="message-time">{formatTime(message.timestamp)}</div>
+          {!isUser && !message.isStreaming && message.content && onCopy && (
+            <button
+              className={`message-copy-btn ${copied ? 'copied' : ''}`}
+              onClick={handleCopyClick}
+              title="Copy response"
+            >
+              {copied ? (
+                <>✅ Copied</>
+              ) : (
+                <>📋 Copy</>
+              )}
+            </button>
+          )}
+        </div>
         {message.isStreaming && <div className="message-indicator">typing...</div>}
       </div>
     </div>
@@ -314,6 +407,7 @@ interface ChatPanelProps {
   isStreaming: boolean;
   onSendMessage: (query: string) => Promise<void>;
   onQuickAction: (action: string) => Promise<void>;
+  onCopyMessage?: (text: string) => void;
 }
 
 const ChatPanel: React.FC<ChatPanelProps> = ({
@@ -321,6 +415,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   isStreaming,
   onSendMessage,
   onQuickAction,
+  onCopyMessage,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -368,7 +463,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             <p>Upload documents and ask a question to get started</p>
           </div>
         ) : (
-          messages.map((msg) => <MessageItem key={msg.id} message={msg} />)
+          messages.map((msg) => (
+            <MessageItem key={msg.id} message={msg} onCopy={onCopyMessage} />
+          ))
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -553,6 +650,7 @@ const DocumentSummarizerApp: React.FC = () => {
   });
   const [modelsInfo, setModelsInfo] = useState<ModelsInfo | null>(null);
   const [isSwitchingModel, setIsSwitchingModel] = useState(false);
+  const { toasts, showToast, dismissToast } = useToasts();
 
   // Fetch available models on mount
   useEffect(() => {
@@ -585,12 +683,16 @@ const DocumentSummarizerApp: React.FC = () => {
       setModelsInfo((prev) =>
         prev ? { ...prev, current: { provider, model } } : prev
       );
+      showToast(`Switched to ${model}`, 'success');
     } catch (error) {
-      alert(`Error switching model: ${error instanceof Error ? error.message : error}`);
+      showToast(
+        `Error switching model: ${error instanceof Error ? error.message : error}`,
+        'error'
+      );
     } finally {
       setIsSwitchingModel(false);
     }
-  }, []);
+  }, [showToast]);
 
   const { stream, isStreaming } = useStreamingMessage((content: string) => {
     setMessages((prev) => {
@@ -659,20 +761,22 @@ const DocumentSummarizerApp: React.FC = () => {
             docsLoaded: prev.docsLoaded + 1,
             memoryUsed: `${Math.round((prev.docsLoaded + 1) * 75)} MB`,
           }));
+
+          showToast(`${file.name} uploaded successfully`, 'success');
         }
       } catch (error) {
-        alert(`Error uploading files: ${error}`);
+        showToast(`Error uploading file: ${error instanceof Error ? error.message : error}`, 'error');
       } finally {
         setIsUploading(false);
       }
     },
-    []
+    [showToast]
   );
 
   const handleSendMessage = useCallback(
     async (query: string) => {
       if (!documents.length) {
-        alert('Please upload at least one document first');
+        showToast('Please upload at least one document first', 'info');
         return;
       }
 
@@ -725,7 +829,7 @@ const DocumentSummarizerApp: React.FC = () => {
         });
       }
     },
-    [documents.length, stream]
+    [documents.length, stream, showToast]
   );
 
   const handleQuickAction = useCallback(
@@ -735,15 +839,47 @@ const DocumentSummarizerApp: React.FC = () => {
     [handleSendMessage]
   );
 
+  const handleClearConversation = useCallback(async () => {
+    try {
+      const response = await fetch('/reset', { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to clear conversation');
+      setMessages([]);
+      showToast('Conversation cleared', 'success');
+    } catch (error) {
+      showToast('Failed to clear conversation', 'error');
+    }
+  }, [showToast]);
+
+  const handleClearAll = useCallback(async () => {
+    try {
+      const response = await fetch('/clear-all', { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to clear all data');
+      setMessages([]);
+      setDocuments([]);
+      setStats({ docsLoaded: 0, memoryUsed: '0 MB', messagesCount: 0 });
+      showToast('All data cleared', 'success');
+    } catch (error) {
+      showToast('Failed to clear all data', 'error');
+    }
+  }, [showToast]);
+
   return (
     <div className="app-container">
       <header className="app-header">
         <h1 className="app-title">Document Summarizer Agent</h1>
-        <ModelSelector
-          modelsInfo={modelsInfo}
-          onSwitch={handleModelSwitch}
-          isSwitching={isSwitchingModel}
-        />
+        <div className="header-actions">
+          <button className="header-btn" onClick={handleClearConversation} title="Clear conversation only">
+            🗑️ Clear Chat
+          </button>
+          <button className="header-btn header-btn-danger" onClick={handleClearAll} title="Clear documents and conversation">
+            🧹 Clear All
+          </button>
+          <ModelSelector
+            modelsInfo={modelsInfo}
+            onSwitch={handleModelSwitch}
+            isSwitching={isSwitchingModel}
+          />
+        </div>
       </header>
 
       <main className="app-main">
@@ -758,8 +894,14 @@ const DocumentSummarizerApp: React.FC = () => {
           isStreaming={isStreaming}
           onSendMessage={handleSendMessage}
           onQuickAction={handleQuickAction}
+          onCopyMessage={(text) => {
+            navigator.clipboard.writeText(text);
+            showToast('Copied to clipboard', 'success');
+          }}
         />
       </main>
+
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 };

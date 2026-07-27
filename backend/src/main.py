@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from pathlib import Path
 from typing import AsyncGenerator
@@ -158,6 +159,11 @@ async def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(400, f"Processing error: {e}")
 
+    # doc.filename currently reflects the on-disk storage name (with UUID
+    # prefix, used to avoid collisions). Restore the original clean filename
+    # for display, metadata, and vector store labeling.
+    doc.filename = file.filename
+
     agent.add_document(doc.id, {
         "filename": doc.filename,
         "metadata": doc.metadata,
@@ -208,17 +214,17 @@ async def sse_generator(query: str) -> AsyncGenerator[str, None]:
     try:
         if agent.provider == "ollama":
             async for chunk in agent.stream_query_ollama(query):
-                yield f"data: {chunk}\n\n"
+                yield f"data: {json.dumps(chunk)}\n\n"
         else:
             with agent.stream_query(query) as stream:
                 full_response = ""
                 for text_chunk in stream.text_stream:
                     full_response += text_chunk
-                    yield f"data: {text_chunk}\n\n"
+                    yield f"data: {json.dumps(text_chunk)}\n\n"
                 agent.memory.add_message("assistant", full_response)
-        yield "data: [DONE]\n\n"
+        yield f"data: {json.dumps('[DONE]')}\n\n"
     except Exception as e:
-        yield f"data: Error: {e}\n\n"
+        yield f"data: {json.dumps(f'Error: {e}')}\n\n"
 
 
 @app.post("/query-stream")

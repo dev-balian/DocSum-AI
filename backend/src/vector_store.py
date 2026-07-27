@@ -167,3 +167,26 @@ class VectorStore:
             )
 
         return "\n\n---\n\n".join(formatted)
+
+    def search_per_document(self, query: str, doc_ids: List[str], k_per_doc: int = 4) -> str:
+        """
+        Search each document independently and return results grouped under
+        clear per-document headers. Guarantees every document gets representation,
+        instead of one document dominating a shared top-k search.
+        """
+        if not doc_ids:
+            return "No documents loaded."
+
+        sections = []
+        for doc_id in doc_ids:
+            results = self.search(query, doc_ids=[doc_id], k=k_per_doc)
+            filename = results[0]["filename"] if results else doc_id
+
+            if not results:
+                sections.append(f"### Document: {filename}\nNo relevant content found.")
+                continue
+
+            chunk_texts = "\n\n".join(r["text"] for r in results)
+            sections.append(f"### Document: {filename}\n{chunk_texts}")
+
+        return "\n\n".join(sections)
