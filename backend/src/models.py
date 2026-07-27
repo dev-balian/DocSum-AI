@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
 
 class QueryRequest(BaseModel):
@@ -12,6 +12,7 @@ class DocumentUploadResponse(BaseModel):
     filename: str
     chunks: int
     message: str
+    images: List[str] = []
 
 
 class ResetResponse(BaseModel):
