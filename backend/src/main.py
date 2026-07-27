@@ -7,6 +7,7 @@ import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.agent import DocumentAgent
@@ -46,11 +47,15 @@ app.add_middleware(
 # Singletons
 # ============================================================================
 
-processor = DocumentProcessor()
-agent = DocumentAgent()
-
 STORAGE_PATH = Path(settings.LOCAL_STORAGE_PATH)
 STORAGE_PATH.mkdir(exist_ok=True)
+
+processor = DocumentProcessor(image_storage_path=str(STORAGE_PATH / "images"))
+agent = DocumentAgent()
+
+IMAGES_PATH = STORAGE_PATH / "images"
+IMAGES_PATH.mkdir(exist_ok=True)
+app.mount("/document-images", StaticFiles(directory=str(IMAGES_PATH)), name="document-images")
 
 # ============================================================================
 # Startup
@@ -157,6 +162,7 @@ async def upload_document(file: UploadFile = File(...)):
         "filename": doc.filename,
         "metadata": doc.metadata,
         "chunk_count": len(doc.chunks),
+        "image_paths": doc.image_paths,
     }, doc.chunks)
 
     return DocumentUploadResponse(
@@ -164,6 +170,7 @@ async def upload_document(file: UploadFile = File(...)):
         filename=doc.filename,
         chunks=len(doc.chunks),
         message="Document processed successfully",
+        images=[f"/document-images/{name}" for name in doc.image_paths],
     )
 
 

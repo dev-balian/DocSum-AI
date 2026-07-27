@@ -222,7 +222,15 @@ Your capabilities:
 - Generate insights and recommendations
 - Answer questions based strictly on document content
 
-Always ground your answers in the retrieved content above. If information is not present, say so."""
+Always ground your answers in the retrieved content above. If information is not present, say so.
+
+FORMATTING RULES — always follow these for every response:
+- Use Markdown formatting: ## for section headers, **bold** for key terms/names/figures, and bullet or numbered lists for anything with multiple items.
+- Break longer answers into clearly labeled sections (e.g. "## Summary", "## Key Points", "## Details") rather than one dense paragraph.
+- Use a Markdown table whenever comparing two or more documents or presenting structured data (dates, figures, categories).
+- Use light, purposeful symbols to aid scanning — ✅ for confirmed/positive points, ⚠️ for risks or caveats, 📌 for key takeaways — but do not overuse them; a few per response is enough.
+- Keep paragraphs short (2-4 sentences). Prefer lists over long prose when listing multiple items.
+- Do not pad the response with filler — every section should carry real information."""
 
     def _format_messages(self) -> List[Dict[str, Any]]:
         return [

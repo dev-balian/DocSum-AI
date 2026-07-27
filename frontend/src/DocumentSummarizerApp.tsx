@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './styles.css';
 
 // ============================================================================
@@ -10,6 +12,7 @@ interface Document {
   filename: string;
   chunks: number;
   size: string;
+  images?: string[];
 }
 
 interface Message {
@@ -231,6 +234,18 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
               <div className="document-meta">
                 {doc.size} • {doc.chunks} chunks
               </div>
+              {doc.images && doc.images.length > 0 && (
+                <div className="document-thumbnails">
+                  {doc.images.slice(0, 4).map((src, i) => (
+                    <img key={i} src={src} alt="" className="document-thumbnail" />
+                  ))}
+                  {doc.images.length > 4 && (
+                    <div className="document-thumbnail-more">
+                      +{doc.images.length - 4}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))
         )}
@@ -274,7 +289,15 @@ const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
         {isUser ? '👤' : '🤖'}
       </div>
       <div className="message-content">
-        <div className="message-text">{message.content}</div>
+        <div className="message-text">
+          {isUser ? (
+            message.content
+          ) : (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.content || ' '}
+            </ReactMarkdown>
+          )}
+        </div>
         <div className="message-time">{formatTime(message.timestamp)}</div>
         {message.isStreaming && <div className="message-indicator">typing...</div>}
       </div>
@@ -627,6 +650,7 @@ const DocumentSummarizerApp: React.FC = () => {
               filename: data.filename,
               chunks: data.chunks,
               size: formatFileSize(file.size),
+              images: data.images || [],
             },
           ]);
 
