@@ -51,6 +51,36 @@ class DocumentAgent:
             chunks=chunks,
         )
 
+    def remove_document(self, doc_id: str) -> bool:
+        """Remove a document from memory and the vector store."""
+        if doc_id not in self.memory.document_context:
+            return False
+        self.memory.remove_document(doc_id)
+        self.vector_store.remove_document(doc_id)
+        return True
+
+    def rename_document(self, doc_id: str, new_filename: str) -> bool:
+        """Rename a document across memory and vector store."""
+        if not self.memory.rename_document(doc_id, new_filename):
+            return False
+        self.vector_store.rename_document(doc_id, new_filename)
+        return True
+
+    def get_document_preview(self, doc_id: str) -> Dict[str, Any]:
+        """Return document metadata plus its chunks, for the preview modal."""
+        data = self.memory.document_context.get(doc_id)
+        if not data:
+            return None
+
+        chunks = self.vector_store.get_document_chunks(doc_id)
+        return {
+            "doc_id": doc_id,
+            "filename": data.get("filename", "unknown"),
+            "metadata": data.get("metadata", {}),
+            "chunk_count": len(chunks),
+            "chunks": [c["text"] for c in chunks],
+        }
+
     # ------------------------------------------------------------------
     # Core query (non-streaming)
     # ------------------------------------------------------------------

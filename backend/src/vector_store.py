@@ -130,6 +130,24 @@ class VectorStore:
             "documents": len(set(m["doc_id"] for m in self.chunk_metadata)),
         }
 
+    def rename_document(self, doc_id: str, new_filename: str) -> int:
+        """Update the filename label on all chunks belonging to a document.
+        Returns the number of chunks updated."""
+        count = 0
+        for m in self.chunk_metadata:
+            if m["doc_id"] == doc_id:
+                m["filename"] = new_filename
+                count += 1
+        if count:
+            self._save()
+        return count
+
+    def get_document_chunks(self, doc_id: str) -> List[Dict]:
+        """Return all chunks belonging to a document, in original order —
+        used for the document preview feature."""
+        chunks = [m for m in self.chunk_metadata if m["doc_id"] == doc_id]
+        return sorted(chunks, key=lambda m: m["chunk_index"])
+
     def clear_all(self):
         """Wipe the entire index and remove persisted files from disk."""
         self.index = faiss.IndexFlatL2(self.embedding_dim)

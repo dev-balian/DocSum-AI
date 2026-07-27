@@ -82,11 +82,29 @@ async def health():
 
 @app.get("/status")
 async def status():
+    vs_stats = agent.vector_store.stats()
+
+    documents = [
+        {
+            "id": doc_id,
+            "filename": data.get("filename", "unknown"),
+            "chunks": data.get("chunk_count", 0),
+            "images": len(data.get("image_paths", [])),
+            "char_count": data.get("metadata", {}).get("char_count", 0),
+        }
+        for doc_id, data in agent.memory.document_context.items()
+    ]
+
     return {
         "documents_loaded": len(agent.memory.document_context),
         "messages": len(agent.memory.messages),
         "provider": agent.provider,
         "model": agent.model,
+        "vector_store": {
+            "total_chunks_indexed": vs_stats["total_chunks"],
+            "documents_indexed": vs_stats["documents"],
+        },
+        "documents": documents,
     }
 
 # ============================================================================
@@ -169,6 +187,7 @@ async def upload_document(file: UploadFile = File(...)):
         "metadata": doc.metadata,
         "chunk_count": len(doc.chunks),
         "image_paths": doc.image_paths,
+        "file_path": str(file_path),
     }, doc.chunks)
 
     return DocumentUploadResponse(
@@ -187,10 +206,61 @@ async def list_documents():
             "id": doc_id,
             "filename": data.get("filename", "unknown"),
             "chunks": data.get("chunk_count", 0),
+            "images": [f"/document-images/{name}" for name in data.get("image_paths", [])],
         }
         for doc_id, data in agent.memory.document_context.items()
     ]
     return {"documents": docs, "count": len(docs)}
+
+
+class RenameRequest(BaseModel):
+    filename: str
+
+
+@app.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str):
+    data = agent.memory.document_context.get(doc_id)
+    if not data:
+        raise HTTPException(404, "Document not found")
+
+    # Remove from memory + vector store
+    agent.remove_document(doc_id)
+
+    # Clean up files on disk (best-effort — don't fail the request if this errors)
+    file_path = data.get("file_path")
+    if file_path:
+        try:
+            Path(file_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    for image_name in data.get("image_paths", []):
+        try:
+            (IMAGES_PATH / image_name).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return {"message": f"Document '{data.get('filename')}' deleted", "document_id": doc_id}
+
+
+@app.patch("/documents/{doc_id}")
+async def rename_document(doc_id: str, request: RenameRequest):
+    new_name = request.filename.strip()
+    if not new_name:
+        raise HTTPException(400, "Filename cannot be empty")
+
+    if not agent.rename_document(doc_id, new_name):
+        raise HTTPException(404, "Document not found")
+
+    return {"message": "Document renamed", "document_id": doc_id, "filename": new_name}
+
+
+@app.get("/documents/{doc_id}/preview")
+async def preview_document(doc_id: str):
+    preview = agent.get_document_preview(doc_id)
+    if not preview:
+        raise HTTPException(404, "Document not found")
+    return preview
 
 # ============================================================================
 # Query — non-streaming
