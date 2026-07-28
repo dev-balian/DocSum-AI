@@ -2,7 +2,7 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List
 
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -217,16 +217,12 @@ class RenameRequest(BaseModel):
     filename: str
 
 
-@app.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str):
-    data = agent.memory.document_context.get(doc_id)
-    if not data:
-        raise HTTPException(404, "Document not found")
+class BulkDeleteRequest(BaseModel):
+    document_ids: List[str]
 
-    # Remove from memory + vector store
-    agent.remove_document(doc_id)
 
-    # Clean up files on disk (best-effort — don't fail the request if this errors)
+def _delete_document_files(data: dict):
+    """Best-effort cleanup of a document's on-disk file + extracted images."""
     file_path = data.get("file_path")
     if file_path:
         try:
@@ -240,7 +236,39 @@ async def delete_document(doc_id: str):
         except Exception:
             pass
 
+
+@app.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str):
+    data = agent.memory.document_context.get(doc_id)
+    if not data:
+        raise HTTPException(404, "Document not found")
+
+    agent.remove_document(doc_id)
+    _delete_document_files(data)
+
     return {"message": f"Document '{data.get('filename')}' deleted", "document_id": doc_id}
+
+
+@app.post("/documents/bulk-delete")
+async def bulk_delete_documents(request: BulkDeleteRequest):
+    deleted = []
+    not_found = []
+
+    for doc_id in request.document_ids:
+        data = agent.memory.document_context.get(doc_id)
+        if not data:
+            not_found.append(doc_id)
+            continue
+
+        agent.remove_document(doc_id)
+        _delete_document_files(data)
+        deleted.append({"document_id": doc_id, "filename": data.get("filename")})
+
+    return {
+        "message": f"Deleted {len(deleted)} document(s)",
+        "deleted": deleted,
+        "not_found": not_found,
+    }
 
 
 @app.patch("/documents/{doc_id}")
