@@ -174,12 +174,6 @@ Full interactive API docs available at `http://localhost:8000/docs` while the ba
 
 ---
 
-## Known Limitations / Roadmap
-
-See the "Still Open / Future Ideas" section in [CHANGELOG.md](./CHANGELOG.md) for potential next steps (per-document chat scoping, retry response, document tags, scanned-PDF warnings).
-
----
-
 ## License
 
 MIT
