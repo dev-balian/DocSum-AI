@@ -868,7 +868,7 @@ button:disabled {
 .message-text ul,
 .message-text ol {
   margin: 0.3em 0 0.7em;
-  padding-left: 1.4em;
+  padding-left: 1.2em;
 }
 
 .message-text li {
@@ -876,10 +876,29 @@ button:disabled {
   line-height: 1.55;
 }
 
+/* Deeper nesting gets progressively smaller indent instead of runaway
+   compounding indentation, so even imperfect model output stays readable */
 .message-text li > ul,
 .message-text li > ol {
   margin-top: 0.3em;
   margin-bottom: 0.3em;
+  padding-left: 0.9em;
+}
+
+.message-text li li li > ul,
+.message-text li li li > ol {
+  padding-left: 0.6em;
+}
+
+.message-text li li li li > ul,
+.message-text li li li li > ol {
+  padding-left: 0.4em;
+}
+
+/* Beyond 3 levels deep, stop increasing indent entirely — treat as flat */
+.message-text li li li li li,
+.message-text li li li li li li {
+  margin-left: 0;
 }
 
 .message-text strong {
@@ -1197,4 +1216,398 @@ button:disabled {
     padding: 0.4rem 0.6rem;
     font-size: 11px;
   }
+}
+
+/* ============================================================================
+   Document Card — Actions, Rename, Delete
+   ============================================================================ */
+
+.document-card {
+  position: relative;
+  transition: opacity 200ms, transform 200ms;
+}
+
+.document-card.deleting {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.document-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.document-name {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background-color 150ms;
+}
+
+.document-name:hover {
+  background-color: var(--surface-1);
+}
+
+.document-name-input {
+  font-size: inherit;
+  font-weight: inherit;
+  font-family: inherit;
+  color: var(--text-primary);
+  background-color: var(--surface-1);
+  border: 1px solid var(--text-accent);
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  width: 100%;
+}
+
+.document-card-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 150ms;
+}
+
+.document-card:hover .document-card-actions {
+  opacity: 1;
+}
+
+.doc-action-btn {
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background-color: var(--surface-1);
+  border: 0.5px solid var(--border);
+  transition: all 150ms;
+  white-space: nowrap;
+}
+
+.doc-action-btn:hover {
+  background-color: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.doc-action-btn.confirm-delete {
+  background-color: rgba(229, 72, 77, 0.12);
+  border-color: #e5484d;
+  color: #e5484d;
+  font-weight: 600;
+}
+
+/* ============================================================================
+   Session Info Panel (dynamic)
+   ============================================================================ */
+
+.session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  gap: 8px;
+}
+
+.session-provider-badge {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background-color: var(--surface-1);
+  border: 0.5px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.session-provider-badge.claude {
+  border-color: #d97757;
+  color: #d97757;
+}
+
+.session-provider-badge.ollama {
+  border-color: #378add;
+  color: #378add;
+}
+
+.session-expand-btn {
+  width: 100%;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0.4rem 0;
+  margin-top: 0.3rem;
+  border-top: 0.5px solid var(--border);
+}
+
+.session-expand-btn:hover {
+  color: var(--text-primary);
+}
+
+.session-breakdown {
+  margin-top: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.session-breakdown-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background-color: var(--surface-1);
+}
+
+.breakdown-filename {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-detail {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ============================================================================
+   Modal (shared: preview, future dialogs)
+   ============================================================================ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 24px;
+  animation: modalFadeIn 150ms ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-content {
+  background-color: var(--surface-2);
+  border: 0.5px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-close-btn {
+  font-size: 16px;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.modal-close-btn:hover {
+  background-color: var(--surface-1);
+  color: var(--text-primary);
+}
+
+.modal-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.modal-error {
+  padding: 1.5rem;
+  color: #e5484d;
+  font-size: 13px;
+}
+
+/* Preview modal specifics */
+
+.preview-meta-bar {
+  display: flex;
+  gap: 14px;
+  padding: 0.6rem 1.25rem;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+}
+
+.preview-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 1;
+}
+
+.preview-chunk-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+}
+
+.preview-chunk-tab {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background-color: var(--surface-1);
+  border: 0.5px solid var(--border);
+  color: var(--text-secondary);
+  transition: all 150ms;
+}
+
+.preview-chunk-tab:hover {
+  background-color: var(--surface-2);
+}
+
+.preview-chunk-tab.active {
+  background-color: var(--bg-accent);
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.preview-chunk-content {
+  padding: 1.25rem;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+/* ============================================================================
+   Multi-select & Bulk Actions
+   ============================================================================ */
+
+.select-mode-btn {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-accent);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 0.5px solid var(--border);
+  background-color: var(--surface-1);
+  transition: all 150ms;
+}
+
+.select-mode-btn:hover {
+  background-color: var(--bg-accent);
+  border-color: var(--text-accent);
+}
+
+.bulk-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0.5rem 1.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.bulk-delete-btn {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 0.5px solid #e5484d;
+  color: #e5484d;
+  background-color: rgba(229, 72, 77, 0.08);
+  transition: all 150ms;
+  white-space: nowrap;
+}
+
+.bulk-delete-btn:hover:not(:disabled) {
+  background-color: rgba(229, 72, 77, 0.15);
+}
+
+.bulk-delete-btn.confirm {
+  background-color: #e5484d;
+  color: white;
+}
+
+.bulk-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.document-select-checkbox {
+  flex-shrink: 0;
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+/* ============================================================================
+   Drag-to-reorder
+   ============================================================================ */
+
+.drag-handle {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  cursor: grab;
+  font-size: 13px;
+  padding-top: 1px;
+  user-select: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.document-card[draggable="true"] {
+  cursor: default;
+}
+
+.document-card.drag-over {
+  border-top: 2px solid var(--text-accent);
 }

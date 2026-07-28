@@ -278,6 +278,8 @@ FORMATTING RULES — always follow these for every response:
 - Use light, purposeful symbols to aid scanning — ✅ for confirmed/positive points, ⚠️ for risks or caveats, 📌 for key takeaways — but do not overuse them; a few per response is enough.
 - Keep paragraphs short (2-4 sentences). Prefer lists over long prose when listing multiple items.
 - Do not pad the response with filler — every section should carry real information.
+- LIST NESTING RULE: Never nest bullet lists more than 2 levels deep. For structured records with several fields (e.g. a job entry with company, dates, responsibilities), use a bold inline label on ONE bullet level instead of creating a new nested sub-list per field — for example:
+  "- **Senior Developer** — Amdocs India Pvt Ltd, Pune (Oct 2021 – Sept 2025)" followed by a single second-level bullet list of responsibilities, NOT a separate nested bullet for "Company:", another for "Dates:", another for "Responsibilities:". If you do use a second level, indent it with exactly 2 spaces, consistently, every time — never 3, 4, or 6 spaces.
 - MULTI-DOCUMENT RULE: If more than one document is loaded and the request is to summarize, extract, or generate insights, ALWAYS give each document its own clearly labeled section using the exact format "## 📄 <filename>" as the header — never merge multiple documents into one blended answer unless the user explicitly asks for a comparison. Only add a final combined section (headed "## 🔗 Combined View") if it adds genuine value beyond the individual breakdowns."""
 
     def _format_messages(self) -> List[Dict[str, Any]]:

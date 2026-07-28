@@ -230,6 +230,8 @@ interface DocumentPanelProps {
   onDelete: (docId: string) => Promise<void>;
   onRename: (docId: string, newName: string) => Promise<void>;
   onPreview: (docId: string) => void;
+  onBulkDelete: (docIds: string[]) => Promise<void>;
+  onReorder: (newOrder: Document[]) => void;
 }
 
 const DocumentPanel: React.FC<DocumentPanelProps> = ({
@@ -239,6 +241,8 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
   onDelete,
   onRename,
   onPreview,
+  onBulkDelete,
+  onReorder,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -246,6 +250,14 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
   const [editValue, setEditValue] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+
+  const dragItemIndex = useRef<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -298,10 +310,74 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
     setDeletingId(null);
   };
 
+  const toggleSelectMode = () => {
+    setSelectMode((v) => !v);
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  };
+
+  const toggleSelected = (docId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) =>
+      prev.size === documents.length ? new Set() : new Set(documents.map((d) => d.id))
+    );
+  };
+
+  const handleBulkDeleteClick = async () => {
+    if (!confirmBulkDelete) {
+      setConfirmBulkDelete(true);
+      return;
+    }
+    setIsBulkDeleting(true);
+    await onBulkDelete(Array.from(selectedIds));
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+    setIsBulkDeleting(false);
+    setSelectMode(false);
+  };
+
+  // --- Drag-to-reorder ---
+  const handleDragStart = (index: number) => {
+    dragItemIndex.current = index;
+  };
+
+  const handleDragOverItem = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDragOverIndex(index);
+  };
+
+  const handleDropOnItem = (index: number) => {
+    const fromIndex = dragItemIndex.current;
+    if (fromIndex === null || fromIndex === index) {
+      dragItemIndex.current = null;
+      setDragOverIndex(null);
+      return;
+    }
+    const reordered = [...documents];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(index, 0, moved);
+    onReorder(reordered);
+    dragItemIndex.current = null;
+    setDragOverIndex(null);
+  };
+
   return (
     <aside className="document-panel">
       <div className="panel-header">
         <h2 className="panel-title">Documents</h2>
+        {documents.length > 0 && (
+          <button className="select-mode-btn" onClick={toggleSelectMode}>
+            {selectMode ? 'Cancel' : 'Select'}
+          </button>
+        )}
       </div>
 
       <div
@@ -337,13 +413,60 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
         )}
       </div>
 
+      {selectMode && documents.length > 0 && (
+        <div className="bulk-actions-bar">
+          <label className="select-all-label">
+            <input
+              type="checkbox"
+              checked={selectedIds.size === documents.length}
+              onChange={toggleSelectAll}
+            />
+            {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
+          </label>
+          {selectedIds.size > 0 && (
+            <button
+              className={`bulk-delete-btn ${confirmBulkDelete ? 'confirm' : ''}`}
+              onClick={handleBulkDeleteClick}
+              disabled={isBulkDeleting}
+            >
+              {isBulkDeleting
+                ? 'Deleting…'
+                : confirmBulkDelete
+                ? `✓ Confirm delete (${selectedIds.size})`
+                : `🗑️ Delete (${selectedIds.size})`}
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="documents-list">
         {documents.length === 0 ? (
           <p className="empty-state">No documents loaded</p>
         ) : (
-          documents.map((doc) => (
-            <div key={doc.id} className={`document-card ${deletingId === doc.id ? 'deleting' : ''}`}>
+          documents.map((doc, index) => (
+            <div
+              key={doc.id}
+              className={`document-card ${deletingId === doc.id ? 'deleting' : ''} ${
+                dragOverIndex === index ? 'drag-over' : ''
+              }`}
+              draggable={!selectMode && editingId !== doc.id}
+              onDragStart={() => handleDragStart(index)}
+              onDragOver={(e) => handleDragOverItem(e, index)}
+              onDrop={() => handleDropOnItem(index)}
+              onDragEnd={() => setDragOverIndex(null)}
+            >
               <div className="document-card-header">
+                {selectMode && (
+                  <input
+                    type="checkbox"
+                    className="document-select-checkbox"
+                    checked={selectedIds.has(doc.id)}
+                    onChange={() => toggleSelected(doc.id)}
+                  />
+                )}
+
+                {!selectMode && <span className="drag-handle" title="Drag to reorder">⠿</span>}
+
                 {editingId === doc.id ? (
                   <input
                     className="document-name-input"
@@ -359,30 +482,32 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
                 ) : (
                   <div
                     className="document-name"
-                    onClick={() => startEdit(doc)}
-                    title="Click to rename"
+                    onClick={() => !selectMode && startEdit(doc)}
+                    title={selectMode ? doc.filename : 'Click to rename'}
                   >
                     {doc.filename}
                   </div>
                 )}
 
-                <div className="document-card-actions">
-                  <button
-                    className="doc-action-btn"
-                    onClick={() => onPreview(doc.id)}
-                    title="Preview content"
-                  >
-                    👁️
-                  </button>
-                  <button
-                    className={`doc-action-btn ${confirmDeleteId === doc.id ? 'confirm-delete' : ''}`}
-                    onClick={() => handleDeleteClick(doc.id)}
-                    onBlur={() => setConfirmDeleteId(null)}
-                    title={confirmDeleteId === doc.id ? 'Click again to confirm' : 'Delete document'}
-                  >
-                    {confirmDeleteId === doc.id ? '✓ Confirm' : '🗑️'}
-                  </button>
-                </div>
+                {!selectMode && (
+                  <div className="document-card-actions">
+                    <button
+                      className="doc-action-btn"
+                      onClick={() => onPreview(doc.id)}
+                      title="Preview content"
+                    >
+                      👁️
+                    </button>
+                    <button
+                      className={`doc-action-btn ${confirmDeleteId === doc.id ? 'confirm-delete' : ''}`}
+                      onClick={() => handleDeleteClick(doc.id)}
+                      onBlur={() => setConfirmDeleteId(null)}
+                      title={confirmDeleteId === doc.id ? 'Click again to confirm' : 'Delete document'}
+                    >
+                      {confirmDeleteId === doc.id ? '✓ Confirm' : '🗑️'}
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="document-meta">
@@ -1118,11 +1243,76 @@ const DocumentSummarizerApp: React.FC = () => {
     setPreviewDocId(docId);
   }, []);
 
+  const handleBulkDeleteDocuments = useCallback(async (docIds: string[]) => {
+    if (docIds.length === 0) return;
+    try {
+      const response = await fetch('/documents/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_ids: docIds }),
+      });
+      if (!response.ok) throw new Error('Bulk delete failed');
+      const data = await response.json();
+      setDocuments((prev) => prev.filter((d) => !docIds.includes(d.id)));
+      showToast(data.message || `Deleted ${docIds.length} document(s)`, 'success');
+    } catch (error) {
+      showToast('Failed to delete selected documents', 'error');
+    }
+  }, [showToast]);
+
+  const handleReorderDocuments = useCallback((newOrder: Document[]) => {
+    setDocuments(newOrder);
+  }, []);
+
+  const handleExportConversation = useCallback(() => {
+    if (messages.length === 0) {
+      showToast('No conversation to export yet', 'info');
+      return;
+    }
+
+    const lines: string[] = [
+      `# DocSum AI — Conversation Export`,
+      ``,
+      `_Exported ${new Date().toLocaleString()}_`,
+      ``,
+      `**Documents in this session:** ${documents.map((d) => d.filename).join(', ') || 'None'}`,
+      ``,
+      `---`,
+      ``,
+    ];
+
+    for (const msg of messages) {
+      const speaker = msg.role === 'user' ? '### 🧑 You' : '### 🤖 Assistant';
+      lines.push(speaker);
+      lines.push(`_${formatTime(msg.timestamp)}_`);
+      lines.push('');
+      lines.push(msg.content);
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `docsum-conversation-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('Conversation exported', 'success');
+  }, [messages, documents, showToast]);
+
   return (
     <div className="app-container">
       <header className="app-header">
         <h1 className="app-title">Document Summarizer Agent</h1>
         <div className="header-actions">
+          <button className="header-btn" onClick={handleExportConversation} title="Export conversation as Markdown">
+            📥 Export
+          </button>
           <button className="header-btn" onClick={handleClearConversation} title="Clear conversation only">
             🗑️ Clear Chat
           </button>
@@ -1145,6 +1335,8 @@ const DocumentSummarizerApp: React.FC = () => {
           onDelete={handleDeleteDocument}
           onRename={handleRenameDocument}
           onPreview={handlePreviewDocument}
+          onBulkDelete={handleBulkDeleteDocuments}
+          onReorder={handleReorderDocuments}
         />
         <ChatPanel
           messages={messages}
